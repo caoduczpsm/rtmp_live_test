@@ -11,6 +11,7 @@ import 'package:flutter_ffmpeg/flutter_ffmpeg.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter_audio_streaming/flutter_audio_streaming.dart';
 
 void main() {
   runApp(const MyApp());
@@ -29,10 +30,13 @@ class _MyAppState extends State<MyApp> {
   bool _recording = false;
   final FlutterFFmpeg _ffmpeg = FlutterFFmpeg();
   String selectedFilePath = "";
-  String rtmpUrl = "rtmp://truyenthongdev-rtmp.vnptics.vn:30138/0f8e9535-abad-418c-a27f-e0d3df8cfaa6";
+  String rtmpUrl = "rtmp://truyenthongdev-rtmp.vnptics.vn:30138/be372495-faa8-488b-8bde-4a76f49e8cd0";
   FlutterSoundRecorder? _recorder;
   FlutterSoundPlayer? _player;
   String? _recordedFilePath;
+
+  StreamingController controller = StreamingController();
+  bool get isStreaming => controller.value.isStreaming ?? false;
 
   @override
   void initState() {
@@ -41,6 +45,87 @@ class _MyAppState extends State<MyApp> {
     initPlatformState();
     initRecorder();
     initPlayer();
+    initialize();
+  }
+
+  void initialize() async {
+    controller.addListener(() async {
+      if (controller.value.hasError) {
+        showInSnackBar('Camera error ${controller.value.errorDescription}');
+        await stopStreaming();
+      } else {
+        try {
+          if (controller.value.event == null) return;
+          final Map<dynamic, dynamic> event =
+          controller.value.event as Map<dynamic, dynamic>;
+          print('Event: $event');
+          final String eventType = event['eventType'] as String;
+          switch (eventType) {
+            case StreamingController.ERROR:
+              break;
+            case StreamingController.RTMP_STOPPED:
+              break;
+            case StreamingController.RTMP_RETRY:
+              if (isStreaming) {
+                await stopStreaming();
+              }
+              break;
+          }
+        } catch (e) {
+          print('initialize: $e');
+        }
+      }
+    });
+    await controller.initialize();
+    controller.prepare();
+  }
+
+  Future<String> startStreaming() async {
+    if (!controller.value.isInitialized!) {
+      showInSnackBar('Error: is not Initialized.');
+      return '';
+    }
+    if (isStreaming) return '';
+    // Open up a dialog for the ur
+    try {
+      await controller.start(rtmpUrl);
+    } on AudioStreamingException catch (e) {
+      _showException("startStreaming", e);
+      return '';
+    }
+    return rtmpUrl;
+  }
+
+  Future<void> stopStreaming() async {
+    if (!controller.value.isInitialized!) {
+      return;
+    }
+    if (!isStreaming) {
+      return;
+    }
+    try {
+      await controller.stop();
+      setState(() {});
+    } on AudioStreamingException catch (e) {
+      _showException("stopStreaming", e);
+      return;
+    }
+  }
+
+  void _showException(String at, AudioStreamingException e) {
+    log("AudioStreaming: Error at $at \n${e.code}\n${e.description}");
+    showInSnackBar('$at Error: ${e.code}\n${e.description}');
+  }
+
+  void showInSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      duration: const Duration(seconds: 1),
+      action: SnackBarAction(
+        label: 'OK',
+        onPressed: () => ScaffoldMessenger.of(context).hideCurrentSnackBar(),
+      ),
+    ));
   }
 
   Future<void> initRecorder() async {
@@ -150,7 +235,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   @override
-  void dispose() {
+  void dispose() async {
     // TODO: implement dispose
     super.dispose();
     _ffmpeg.cancel();
@@ -158,6 +243,8 @@ class _MyAppState extends State<MyApp> {
     _stream?.dispose();
     _recorder!.closeRecorder();
     _player!.closePlayer();
+    if (isStreaming) await controller.stop();
+    controller.dispose();
   }
 
   Future<void> checkAndRequestPermission() async {
@@ -187,9 +274,16 @@ class _MyAppState extends State<MyApp> {
           selectedFilePath = result.files.single.path!;
         });
 
-        String command = "-re -i '${selectedFile.path}' -c:a aac -f wav $rtmpUrl";
+        await _player!.startPlayer(
+          fromURI: selectedFilePath,
+          codec: Codec.aacADTS,
+        );
 
-        await _ffmpeg.execute(command);
+        await startStreaming();
+
+        // String command = "-re -i '${selectedFile.path}' -c:a aac -b:a 128k -f wav $rtmpUrl";
+        //
+        // await _ffmpeg.execute(command);
       } else {
         log("File null");
       }
