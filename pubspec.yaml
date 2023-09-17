@@ -47,7 +47,7 @@ dependencies:
   audio_session: ^0.1.16
   file_picker: ^5.2.0
   just_audio: ^0.9.34
-  speech_to_text: ^6.1.1
+  speech_to_text: ^5.0.4
   mqtt_client: ^9.8.1
   audio_streamer: ^3.0.0
   audioplayers: ^4.1.0

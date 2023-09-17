@@ -3,14 +3,9 @@ import 'dart:developer';
 import 'dart:io';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/material.dart';
-import 'package:haishin_kit/audio_source.dart';
-import 'package:haishin_kit/rtmp_connection.dart';
-import 'package:haishin_kit/rtmp_stream.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_ffmpeg/flutter_ffmpeg.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter_sound/flutter_sound.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:flutter_audio_streaming/flutter_audio_streaming.dart';
 
 void main() {
@@ -25,15 +20,11 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  RtmpConnection? _connection;
-  RtmpStream? _stream;
-  bool _recording = false;
+  bool _isStreaming = false;
   final FlutterFFmpeg _ffmpeg = FlutterFFmpeg();
   String selectedFilePath = "";
-  String rtmpUrl = "rtmp://truyenthongdev-rtmp.vnptics.vn:30138/be372495-faa8-488b-8bde-4a76f49e8cd0";
-  FlutterSoundRecorder? _recorder;
-  FlutterSoundPlayer? _player;
-  String? _recordedFilePath;
+  String rtmpUrl =
+      "rtmp://truyenthongdev-rtmp.vnptics.vn:30138/be372495-faa8-488b-8bde-4a76f49e8cd0";
 
   StreamingController controller = StreamingController();
   bool get isStreaming => controller.value.isStreaming ?? false;
@@ -43,9 +34,16 @@ class _MyAppState extends State<MyApp> {
     super.initState();
     checkAndRequestPermission();
     initPlatformState();
-    initRecorder();
-    initPlayer();
     initialize();
+  }
+
+  @override
+  void dispose() async {
+    // TODO: implement dispose
+    super.dispose();
+    _ffmpeg.cancel();
+    if (isStreaming) await controller.stop();
+    controller.dispose();
   }
 
   void initialize() async {
@@ -57,8 +55,8 @@ class _MyAppState extends State<MyApp> {
         try {
           if (controller.value.event == null) return;
           final Map<dynamic, dynamic> event =
-          controller.value.event as Map<dynamic, dynamic>;
-          print('Event: $event');
+              controller.value.event as Map<dynamic, dynamic>;
+          log('Event: $event');
           final String eventType = event['eventType'] as String;
           switch (eventType) {
             case StreamingController.ERROR:
@@ -72,7 +70,7 @@ class _MyAppState extends State<MyApp> {
               break;
           }
         } catch (e) {
-          print('initialize: $e');
+          log('initialize: $e');
         }
       }
     });
@@ -104,8 +102,10 @@ class _MyAppState extends State<MyApp> {
       return;
     }
     try {
+      setState(() {
+        _isStreaming = false;
+      });
       await controller.stop();
-      setState(() {});
     } on AudioStreamingException catch (e) {
       _showException("stopStreaming", e);
       return;
@@ -128,48 +128,6 @@ class _MyAppState extends State<MyApp> {
     ));
   }
 
-  Future<void> initRecorder() async {
-    _recorder = FlutterSoundRecorder();
-    await _recorder!.openRecorder();
-    await _recorder!.setSubscriptionDuration(const Duration(milliseconds: 10));
-  }
-
-  Future<void> initPlayer() async {
-    _player = FlutterSoundPlayer();
-    await _player!.openPlayer();
-    await _player!.setSubscriptionDuration(const Duration(milliseconds: 10));
-  }
-
-  Future<void> startRecording() async {
-    String tempDir = (await getTemporaryDirectory()).path;
-    String path = '$tempDir/flutter_sound_example.aac';
-    await _recorder!.startRecorder(
-      toFile: path,
-      codec: Codec.aacADTS,
-    );
-    setState(() {
-      _recordedFilePath = path;
-    });
-  }
-
-  Future<void> stopRecording() async {
-    await _recorder!.stopRecorder();
-  }
-
-  Future<void> startPlaying() async {
-    if (_recordedFilePath != null) {
-      await _player!.startPlayer(
-        fromURI: _recordedFilePath!,
-        codec: Codec.aacADTS,
-      );
-    }
-  }
-
-  Future<void> stopPlaying() async {
-    await _player!.stopPlayer();
-  }
-
-
   Future<void> initPlatformState() async {
     await Permission.camera.request();
     await Permission.microphone.request();
@@ -184,67 +142,15 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> connectRtmp() async {
-    if (!_recording) {
-      stopPlaying();
-      startRecording();
-      RtmpConnection connection = await RtmpConnection.create();
-
-      connection.eventChannel.receiveBroadcastStream().listen((event) {
-        switch (event["data"]["code"]) {
-          case 'NetConnection.Connect.Success':
-            _stream?.publish("live");
-            setState(() {
-              _recording = true;
-            });
-            break;
-        }
-      });
-
-      RtmpStream stream = await RtmpStream.create(connection);
-      stream.attachAudio(AudioSource());
-      stream.setHasVideo(false);
-
-      if (!mounted) return;
-      setState(() {
-        _connection = connection;
-        _stream = stream;
-      });
-
-      if (!_recording) {
-        _connection?.connect(rtmpUrl);
-        setState(() {
-          _recording = true;
-        });
-      }
+    if (!_isStreaming) {
+      await startStreaming();
     }
   }
 
   Future<void> disconnectRtmp() async {
-    stopRecording();
-    startPlaying();
-    if (_recording) {
-      _connection?.close();
-      _stream?.attachAudio(null);
-      _stream?.dispose();
-      _connection?.dispose();
-      setState(() {
-        _recording = false;
-        _stream = null;
-      });
+    if (_isStreaming) {
+      await stopStreaming();
     }
-  }
-
-  @override
-  void dispose() async {
-    // TODO: implement dispose
-    super.dispose();
-    _ffmpeg.cancel();
-    _connection?.dispose();
-    _stream?.dispose();
-    _recorder!.closeRecorder();
-    _player!.closePlayer();
-    if (isStreaming) await controller.stop();
-    controller.dispose();
   }
 
   Future<void> checkAndRequestPermission() async {
@@ -274,16 +180,8 @@ class _MyAppState extends State<MyApp> {
           selectedFilePath = result.files.single.path!;
         });
 
-        // await _player!.startPlayer(
-        //   fromURI: selectedFilePath,
-        //   codec: Codec.aacADTS,
-        // );
-
-        // await startStreaming();
-        // controller.mute();
-
-        String command = "-re -i '${selectedFile.path}' -c:v libx264 -c:a aac -f flv $rtmpUrl";
-
+        String command =
+            "-re -i '${selectedFile.path}' -c:v libx264 -c:a aac -f flv $rtmpUrl";
         await _ffmpeg.execute(command);
       } else {
         log("File null");
@@ -300,13 +198,6 @@ class _MyAppState extends State<MyApp> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _stream == null
-                  ? const Text("")
-                  : const Text(
-                      "Đang phát trực tiếp",
-                      style:
-                          TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                    ),
               const SizedBox(
                 height: 50,
               ),
@@ -315,8 +206,8 @@ class _MyAppState extends State<MyApp> {
                 children: <Widget>[
                   IconButton(
                     iconSize: 96.0,
-                    icon: Icon(_recording ? Icons.mic_off : Icons.mic),
-                    onPressed: _recording ? disconnectRtmp : connectRtmp,
+                    icon: Icon(_isStreaming ? Icons.mic_off : Icons.mic),
+                    onPressed: _isStreaming ? disconnectRtmp : connectRtmp,
                   ),
                 ],
               ),
@@ -326,7 +217,10 @@ class _MyAppState extends State<MyApp> {
         floatingActionButton: FloatingActionButton(
           onPressed: _pickAndStream,
           backgroundColor: Colors.blueAccent,
-          child: const Icon(Icons.file_copy_outlined, color: Colors.white,),
+          child: const Icon(
+            Icons.file_copy_outlined,
+            color: Colors.white,
+          ),
         ),
       ),
     );
