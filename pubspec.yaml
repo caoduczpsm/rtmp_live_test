@@ -53,6 +53,7 @@ dependencies:
   audioplayers: ^4.1.0
   path_provider: ^2.0.15
   flutter_audio_streaming: ^1.0.5
+  music_visualizer: ^1.0.4
 
 dev_dependencies:
   flutter_test:

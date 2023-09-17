@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_ffmpeg/flutter_ffmpeg.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_audio_streaming/flutter_audio_streaming.dart';
+import 'package:music_visualizer/music_visualizer.dart';
 
 void main() {
   runApp(const MyApp());
@@ -21,6 +22,8 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   bool _isStreaming = false;
+  bool _isStreamingFile = false;
+  bool _isDoneFile = false;
   final FlutterFFmpeg _ffmpeg = FlutterFFmpeg();
   String selectedFilePath = "";
   String rtmpUrl =
@@ -28,6 +31,15 @@ class _MyAppState extends State<MyApp> {
 
   StreamingController controller = StreamingController();
   bool get isStreaming => controller.value.isStreaming ?? false;
+
+  final List<Color> colors = [
+    Colors.red[900]!,
+    Colors.green[900]!,
+    Colors.blue[900]!,
+    Colors.brown[900]!
+  ];
+
+  final List<int> duration = [1500, 1100, 2000, 1700, 1300];
 
   @override
   void initState() {
@@ -178,11 +190,23 @@ class _MyAppState extends State<MyApp> {
       if (selectedFile.existsSync()) {
         setState(() {
           selectedFilePath = result.files.single.path!;
+          _isStreamingFile = true;
         });
-
         String command =
             "-re -i '${selectedFile.path}' -c:v libx264 -c:a aac -f flv $rtmpUrl";
-        await _ffmpeg.execute(command);
+        await _ffmpeg.execute(command).then((value) {
+          setState(() {
+            _isStreamingFile = false;
+            _isDoneFile = true;
+            Future.delayed(const Duration(seconds: 5), () {
+              if (mounted) {
+                setState(() {
+                  _isDoneFile = false;
+                });
+              }
+            });
+          });
+        });
       } else {
         log("File null");
       }
@@ -198,6 +222,49 @@ class _MyAppState extends State<MyApp> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              Visibility(
+                  visible: _isStreamingFile,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text(
+                        "Vui lòng chờ cho đến khi việc truyền file kết thúc...",
+                        style: TextStyle(fontSize: 18),
+                      ),
+                      const SizedBox(
+                        height: 20,
+                      ),
+                      Container(
+                        margin: const EdgeInsets.only(left: 15, right: 15),
+                        height: 50,
+                        child: MusicVisualizer(
+                          barCount: 30,
+                          colors: colors,
+                          duration: duration,
+                        ),
+                      )
+                    ],
+                  )),
+              Visibility(
+                visible: _isDoneFile,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: const [
+                    Text(
+                      "Done",
+                      style:
+                          TextStyle(fontWeight: FontWeight.bold, fontSize: 24),
+                    ),
+                    SizedBox(
+                      width: 4,
+                    ),
+                    Icon(
+                      Icons.check,
+                      color: Colors.greenAccent,
+                    )
+                  ],
+                ),
+              ),
               const SizedBox(
                 height: 50,
               ),
