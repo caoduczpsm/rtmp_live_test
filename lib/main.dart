@@ -274,16 +274,17 @@ class _MyAppState extends State<MyApp> {
           selectedFilePath = result.files.single.path!;
         });
 
-        await _player!.startPlayer(
-          fromURI: selectedFilePath,
-          codec: Codec.aacADTS,
-        );
+        // await _player!.startPlayer(
+        //   fromURI: selectedFilePath,
+        //   codec: Codec.aacADTS,
+        // );
 
-        await startStreaming();
+        // await startStreaming();
+        // controller.mute();
 
-        // String command = "-re -i '${selectedFile.path}' -c:a aac -b:a 128k -f wav $rtmpUrl";
-        //
-        // await _ffmpeg.execute(command);
+        String command = "-re -i '${selectedFile.path}' -c:v libx264 -c:a aac -f flv $rtmpUrl";
+
+        await _ffmpeg.execute(command);
       } else {
         log("File null");
       }
